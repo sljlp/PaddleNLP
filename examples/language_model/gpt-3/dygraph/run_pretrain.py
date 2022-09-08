@@ -295,6 +295,7 @@ def do_train(args):
 
     global_step = 0
     tic_train = time.time()
+    mean_speed = 0.
     for epoch in range(args.num_train_epochs):
         files = get_train_data_file(args)
         files.sort()
@@ -402,7 +403,9 @@ def do_train(args):
                     speed = args.logging_freq / (train_reader_cost +
                                                  train_run_cost)
                     avg_reader_cost = train_reader_cost / args.logging_freq
-
+                    if global_step > 1:
+                           mean_speed = (mean_speed * (global_step - 2) + speed * default_global_tokens_num)/(global_step - 1)
+                           logger.info("mean speed ips: %.2f" % mean_speed)
                     logger.info(
                         "global step %d, epoch: %d, batch: %d, loss: %.9f, avg_reader_cost: %.5f sec, avg_batch_cost: %.5f sec, speed: %.2f step/s, ips_total: %.0f tokens/s, ips: %.0f tokens/s, learning rate: %.5e"
                         % (global_step, epoch, step, avg_loss, avg_reader_cost,
