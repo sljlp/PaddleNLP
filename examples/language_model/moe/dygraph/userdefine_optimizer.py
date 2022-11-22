@@ -60,8 +60,8 @@ class HybridParallelClipGrad:
             if g.type == core.VarDesc.VarType.SELECTED_ROWS:
                 merge_grad = layers.merge_selected_rows(g)
                 merge_grad = layers.get_tensor_from_selected_rows(merge_grad)
-            square = layers.square(merge_grad)
-            sum_square = layers.reduce_sum(square)
+            square = paddle.tensor.math.square(merge_grad)
+            sum_square = paddle.sum(square)
 
             not_shared_enable = (not hasattr(p, 'is_firstly_shared')) or (
                 hasattr(p, 'is_firstly_shared')
@@ -73,16 +73,16 @@ class HybridParallelClipGrad:
                 else:
                     sum_square_list_not_dist.append(sum_square)
 
-        global_norm_var_dist = layers.concat(sum_square_list_dist) if len(
-            sum_square_list_dist) != 0 else layers.concat(
+        global_norm_var_dist = paddle.concat(sum_square_list_dist) if len(
+            sum_square_list_dist) != 0 else paddle.concat(
                 [paddle.to_tensor([0.])])
-        global_norm_var_dist = layers.reduce_sum(global_norm_var_dist)
+        global_norm_var_dist = paddle.sum(global_norm_var_dist)
 
-        global_norm_var_not_dist = layers.concat(
+        global_norm_var_not_dist = paddle.concat(
             sum_square_list_not_dist
-        ) if len(sum_square_list_not_dist) != 0 else layers.concat(
+        ) if len(sum_square_list_not_dist) != 0 else paddle.concat(
             [paddle.to_tensor([0.])])
-        global_norm_var_not_dist = layers.reduce_sum(global_norm_var_not_dist)
+        global_norm_var_not_dist = paddle.sum(global_norm_var_not_dist)
 
         # add all reduce to get global norm of distributed params_and_grads
         if self._hcg.get_model_parallel_world_size() > 1:
@@ -103,23 +103,22 @@ class HybridParallelClipGrad:
                 global_norm_var_not_dist,
                 group=self._hcg.get_sharding_parallel_group())
 
-        global_norm_var = layers.sqrt(global_norm_var_dist +
+        global_norm_var = paddle.sqrt(global_norm_var_dist +
                                       global_norm_var_not_dist)
 
-        max_global_norm = layers.fill_constant(shape=[1],
-                                               dtype=global_norm_var.dtype,
-                                               value=self.clip_norm)
-        clip_var = layers.elementwise_div(x=max_global_norm,
-                                          y=layers.elementwise_max(
-                                              x=global_norm_var,
-                                              y=max_global_norm))
+        max_global_norm = paddle.full(shape=[1],
+                                      dtype=global_norm_var.dtype,
+                                      value=self.clip_norm)
+        clip_var = paddle.divide(x=max_global_norm,
+                                 y=paddle.maximum(x=global_norm_var,
+                                                  y=max_global_norm))
         for p, g in params_grads:
             if g is None:
                 continue
             if getattr(p, 'need_clip', True) is False:
                 params_and_grads.append((p, g))
                 continue
-            new_grad = layers.elementwise_mul(x=g, y=clip_var)
+            new_grad = paddle.multiply(x=g, y=clip_var)
             params_and_grads.append((p, new_grad))
 
         return params_and_grads
